@@ -951,17 +951,18 @@ export abstract class BaseNavigationAction extends Action {
 		const isSidebarFocus = this.partService.hasFocus(Parts.SIDEBAR_PART);
 		const isPanelOpen = this.panelService.getActivePanel();
 		const isGroupOrientationVertical = this.groupService.getGroupOrientation() === 'vertical' ? true : false;
-		const stacksModel = this.groupService.getStacksModel();
-		const activeGroup = stacksModel.activeGroup;
-		const activeGroupId = activeGroup.id;
-		const activeEditorIndex = activeGroup.indexOf(activeGroup.activeEditor);
-		const isFirstGroup = activeGroupId === 0;
-		const isFirstEditorInGroup = activeEditorIndex === 0;
 		const sidebarPosition = this.partService.getSideBarPosition();
+		// validate activeGroup
+		// const stacksModel = this.groupService.getStacksModel();
+		// const activeGroup = stacksModel.activeGroup;
+		// const activeGroupId = activeGroup.id;
+		// const activeEditorIndex = activeGroup.indexOf(activeGroup.activeEditor);
+		// const isFirstGroup = activeGroupId === 0;
+		// const isFirstEditorInGroup = activeEditorIndex === 0;
 
 		return {
 			isEditorFocus, isPanelFocus, isSidebarFocus, isPanelOpen: isPanelOpen? true: false, isGroupOrientationVertical,
-			isFirstGroup, isFirstEditorInGroup, sidebarPosition
+			sidebarPosition
 		};
 	}
 
@@ -1009,27 +1010,28 @@ export abstract class BaseNavigationAction extends Action {
 		return false;
 	}
 
-	protected navigateToLeftEditor(currentState) {
-		const {isGroupOrientationVertical,isFirstGroup, isFirstEditorInGroup} = currentState;
+	protected navigateToEndOfEditor() {
 		const model = this.groupService.getStacksModel();
-		let result = undefined;
-
-		// if (isGroupOrientationVertical && !isFirstGroup && !isFirstEditorInGroup) {
-		// 	result = model.previous(true);
-		// }
-
-		if(isGroupOrientationVertical && isFirstGroup && isFirstEditorInGroup) {
-			result = null;
-		} else if(!isGroupOrientationVertical && isFirstEditorInGroup) {
-			result = null;
-		} else {
-			result = model.previous(true, false);
+		console.log(model.groups.length);
+		if (model.groups.length < 1) {
+			return null;
 		}
-		if (result) {
-			return this.editorService.openEditor(result.editor, null, model.positionOfGroup(result.group))
-			.then(ok => true);
+
+		const lastGroup = model.getGroup(model.groups[model.groups.length -1].id);
+		// console.log('groups', model.groups);
+		console.log('lastGroup', lastGroup);
+		const lastEditor = lastGroup.getEditor(lastGroup.count - 1);
+		this.editorService.openEditor(lastEditor, null, model.positionOfGroup(lastGroup));
+	}
+
+	protected navigateToStartOfEditor() {
+		const model = this.groupService.getStacksModel();
+		if (model.groups.length < 1) {
+			return null;
 		}
-		return false;
+		const firstGroup = model.getGroup(0);
+		const firstEditor = firstGroup.getEditor(0);
+		this.editorService.openEditor(firstEditor, null, model.positionOfGroup(firstGroup));
 	}
 }
 
@@ -1067,7 +1069,7 @@ export class NavigateLeftAction extends BaseNavigationAction {
 		} else {
 			if (isSidebarFocus) {
 				// navigate to last editor of last group;
-				this.navigateToSidebar();
+				this.navigateToEndOfEditor();
 			} else if (isEditorFocus) {
 				this.navigateToPreviousEditor(currentState);
 			}
