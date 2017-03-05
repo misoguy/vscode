@@ -30,6 +30,10 @@ import * as browser from 'vs/base/browser/browser';
 import { IIntegrityService } from 'vs/platform/integrity/common/integrity';
 import { IEntryRunContext } from 'vs/base/parts/quickopen/common/quickOpen';
 import { ITimerService, IStartupMetrics } from 'vs/workbench/services/timer/common/timerService';
+import { IEditorGroupService } from 'vs/workbench/services/group/common/groupService';
+import { IPanelService } from 'vs/workbench/services/panel/common/panelService';
+import { IPartService, Parts, Position } from 'vs/workbench/services/part/common/partService';
+import { IViewletService } from 'vs/workbench/services/viewlet/browser/viewlet';
 
 import * as os from 'os';
 import { webFrame } from 'electron';
@@ -903,5 +907,204 @@ export class OpenIntroductoryVideosUrlAction extends Action {
 	public run(): TPromise<void> {
 		window.open(OpenIntroductoryVideosUrlAction.URL);
 		return null;
+	}
+}
+
+export abstract class BaseNavigationAction extends Action {
+
+	constructor(
+		id: string,
+		label: string,
+		@IWorkspaceConfigurationService private configurationService: IWorkspaceConfigurationService,
+		@IWorkbenchEditorService private editorService: IWorkbenchEditorService,
+		@IEditorGroupService private groupService: IEditorGroupService,
+		@IPanelService private panelService: IPanelService,
+		@IPartService private partService: IPartService,
+		@IViewletService private viewletService: IViewletService
+	) {
+		super(id, label);
+	}
+
+	public run(): TPromise<any> {
+		const currentState = this.getCurrentState();
+		const result = this.navigate(currentState);
+		if (result) {
+			return TPromise.as(true);
+		}
+
+		return TPromise.as(false);
+	}
+	// public run(): TPromise<any> {
+	// 	const model = this.editorGroupService.getStacksModel();
+	// 	const result = this.navigate();
+	// 	if (result) {
+	// 		return this.editorService.openEditor(result.editor, null, model.positionOfGroup(result.group));
+	// 	}
+	// 	return TPromise.as(false);
+	// }
+	// protected abstract navigate(): IEditorIdentifier
+	protected abstract navigate(currentState)
+
+	protected getCurrentState() {
+		const isEditorFocus = this.partService.hasFocus(Parts.EDITOR_PART);
+		const isPanelFocus = this.partService.hasFocus(Parts.PANEL_PART);
+		const isSidebarFocus = this.partService.hasFocus(Parts.SIDEBAR_PART);
+		const isPanelOpen = this.panelService.getActivePanel();
+		const isGroupOrientationVertical = this.groupService.getGroupOrientation() === 'vertical' ? true : false;
+		const stacksModel = this.groupService.getStacksModel();
+		const activeGroup = stacksModel.activeGroup;
+		const activeGroupId = activeGroup.id;
+		const activeEditorIndex = activeGroup.indexOf(activeGroup.activeEditor);
+		const isFirstGroup = activeGroupId === 0;
+		const isFirstEditorInGroup = activeEditorIndex === 0;
+		const sidebarPosition = this.partService.getSideBarPosition();
+
+		return {
+			isEditorFocus, isPanelFocus, isSidebarFocus, isPanelOpen: isPanelOpen? true: false, isGroupOrientationVertical,
+			isFirstGroup, isFirstEditorInGroup, sidebarPosition
+		};
+	}
+
+	protected navigateToPanel() {
+		if (!this.partService.isVisible(Parts.PANEL_PART)) {
+			return;
+		}
+		const activePanelId = this.panelService.getActivePanel().getId();
+		this.panelService.openPanel(activePanelId, true);
+	}
+
+	protected navigateToSidebar() {
+		if (!this.partService.isVisible(Parts.SIDEBAR_PART)) {
+			return;
+		}
+		const activeViewletId = this.viewletService.getActiveViewlet().getId();
+		this.viewletService.openViewlet(activeViewletId, true);
+	}
+
+	protected navigateToNextEditor(currentState) {
+		const {isGroupOrientationVertical,isFirstGroup, isFirstEditorInGroup} = currentState;
+		const model = this.groupService.getStacksModel();
+		let result = undefined;
+		if(isGroupOrientationVertical && isFirstGroup && isFirstEditorInGroup) {
+			result = null;
+		} else if(!isGroupOrientationVertical && isFirstEditorInGroup) {
+			result = null;
+		} else {
+			result = model.previous(true);
+		}
+		if (result) {
+			return this.editorService.openEditor(result.editor, null, model.positionOfGroup(result.group))
+			.then(ok => true);
+		}
+		return false;
+	}
+
+	protected navigateToPreviousEditor(currentState) {
+		const model = this.groupService.getStacksModel();
+		let result = model.previous(true, false);
+		if (result) {
+			return this.editorService.openEditor(result.editor, null, model.positionOfGroup(result.group))
+			.then(ok => true);
+		}
+		return false;
+	}
+
+	protected navigateToLeftEditor(currentState) {
+		const {isGroupOrientationVertical,isFirstGroup, isFirstEditorInGroup} = currentState;
+		const model = this.groupService.getStacksModel();
+		let result = undefined;
+
+		// if (isGroupOrientationVertical && !isFirstGroup && !isFirstEditorInGroup) {
+		// 	result = model.previous(true);
+		// }
+
+		if(isGroupOrientationVertical && isFirstGroup && isFirstEditorInGroup) {
+			result = null;
+		} else if(!isGroupOrientationVertical && isFirstEditorInGroup) {
+			result = null;
+		} else {
+			result = model.previous(true, false);
+		}
+		if (result) {
+			return this.editorService.openEditor(result.editor, null, model.positionOfGroup(result.group))
+			.then(ok => true);
+		}
+		return false;
+	}
+}
+
+export class NavigateLeftAction extends BaseNavigationAction {
+	// 1. move to left editor (focus on panel, focus on editor -> verticalsplit: first group first editor, horizontal: first editor on current group)
+	// 2. move to sidebar
+	public static ID = 'workbench.action.navigateLeft';
+	public static LABEL = nls.localize('navigateLeft', "Navigate Left");
+
+	constructor(
+		id: string,
+		label: string,
+		@IWorkspaceConfigurationService configurationService: IWorkspaceConfigurationService,
+		@IWorkbenchEditorService editorService: IWorkbenchEditorService,
+		@IEditorGroupService groupService: IEditorGroupService,
+		@IPanelService panelService: IPanelService,
+		@IPartService partService: IPartService,
+		@IViewletService viewletService: IViewletService
+	) {
+		super(id, label, configurationService, editorService, groupService, panelService, partService, viewletService);
+	}
+
+	protected navigate(currentState) {
+		const {isPanelFocus, isEditorFocus, isSidebarFocus, sidebarPosition} = currentState;
+		if (sidebarPosition === Position.LEFT) {
+			if (isPanelFocus) {
+				this.navigateToSidebar();
+			} else if (isEditorFocus) {
+				if (this.navigateToPreviousEditor(currentState)) {
+
+				} else {
+					this.navigateToSidebar();
+				}
+			}
+		} else {
+			if (isSidebarFocus) {
+				// navigate to last editor of last group;
+				this.navigateToSidebar();
+			} else if (isEditorFocus) {
+				this.navigateToPreviousEditor(currentState);
+			}
+		}
+	}
+}
+
+export class NavigateRightAction extends BaseNavigationAction {
+	// 1. move to left editor (focus on panel, focus on editor -> verticalsplit: first group first editor, horizontal: first editor on current group)
+	// 2. move to sidebar
+	public static ID = 'workbench.action.navigateRight';
+	public static LABEL = nls.localize('navigateRight', "Navigate Right");
+
+	constructor(
+		id: string,
+		label: string,
+		@IWorkspaceConfigurationService configurationService: IWorkspaceConfigurationService,
+		@IWorkbenchEditorService editorService: IWorkbenchEditorService,
+		@IEditorGroupService groupService: IEditorGroupService,
+		@IPanelService panelService: IPanelService,
+		@IPartService partService: IPartService,
+		@IViewletService viewletService: IViewletService
+	) {
+		super(id, label, configurationService, editorService, groupService, panelService, partService, viewletService);
+	}
+
+	protected navigate(currentState) {
+		const {isSidebarFocus, isEditorFocus} = currentState;
+		if (isSidebarFocus) {
+			// navigate to first editor
+			// this.navigateToSidebar();
+		} else if (isEditorFocus) {
+			if (this.navigateToPreviousEditor(currentState)) {
+
+			} else {
+				this.navigateToSidebar();
+			}
+		}
 	}
 }
